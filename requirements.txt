@@ -1,0 +1,2 @@
+scapy==2.7.0
+mininet==2.3.0.dev6
