@@ -4,7 +4,7 @@ from mininet.cli import CLI
 from mininet.log import setLogLevel
 
 def car_network():
-    net = Mininet(controller=Controller, switch=OVSKernelSwitch)
+    net = Mininet(controller=Controller, switch=OVSKernelSwitch, waitConnected=True)
 
     print("***SDN Controller") #basic controller
     net.addController('c0')
@@ -23,6 +23,9 @@ def car_network():
     print("***Starting the vehicle network") #boot network
     net.start()
 
+    print("*** Testing connectivity")
+    net.pingAll()
+
     print("***Type 'pingall' to test.") #network is live
     CLI(net)
 
@@ -31,4 +34,4 @@ def car_network():
 
 if __name__ == '__main__': #boilerplate
     setLogLevel('info')
-    car_network
+    car_network()
