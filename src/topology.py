@@ -1,5 +1,5 @@
 from mininet.net import Mininet
-from mininet.node import Controller, OVSKernelSwitch
+from mininet.node import Controller, OVSKernelSwitch, RemoteController
 from mininet.cli import CLI
 from mininet.log import setLogLevel
 
@@ -7,7 +7,7 @@ def car_network():
     net = Mininet(controller=Controller, switch=OVSKernelSwitch, waitConnected=True)
 
     print("***SDN Controller") #basic controller
-    net.addController('c0')
+    net.addController('c0', controller=RemoteController)
 
     print("***Central Switch") # virtual switch
     s1 = net.addSwitch('s1')
