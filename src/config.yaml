@@ -1,0 +1,13 @@
+network:
+  attacker_ip: "10.0.0.1"
+  victim_ip: "10.0.0.2"
+
+attack:
+  target_port: 9999
+  source_port: 12345
+  duration: 10          # seconds
+  payload_size: 512     # bytes
+
+victim:
+  listen_port: 9999
+  log_interval: 100     # print stats every N packets
