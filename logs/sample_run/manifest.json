@@ -1,0 +1,47 @@
+{
+  "run_id": "sample_run",
+  "t_start_wall_iso": "2026-04-15T20:05:47.769324+00:00",
+  "t_start_mono_s": 2037272.694351462,
+  "git_sha": "a0972bcea6871d9f37d8c5077147a7f6e2cce769",
+  "host": "qamil-mirza-Nitro-AN515-57",
+  "config": {
+    "network": {
+      "attacker_ip": "10.0.0.1",
+      "victim_ip": "127.0.0.1"
+    },
+    "attack": {
+      "target_port": 30490,
+      "source_port": 12345,
+      "duration": 5,
+      "payload_size": 512,
+      "someip_header": true,
+      "mode": "constant",
+      "target_pps": 100,
+      "burst": {
+        "on_ms": 500,
+        "off_ms": 500,
+        "pps": 200
+      },
+      "ramp": {
+        "from_pps": 10,
+        "to_pps": 200
+      }
+    },
+    "benign": {
+      "enabled": false,
+      "target_port": 30490,
+      "source_port": 22222,
+      "pps": 20,
+      "payload_size": 64
+    },
+    "victim": {
+      "listen_port": 30490,
+      "log_interval": 100
+    },
+    "logging": {
+      "output_dir": "logs",
+      "sample_interval_ms": 100,
+      "run_id": "sample_run"
+    }
+  }
+}

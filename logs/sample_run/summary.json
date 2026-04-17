@@ -1,0 +1,12 @@
+{
+  "run_id": "sample_run",
+  "mode": "constant",
+  "duration_s": 5.000180721050128,
+  "sent": 501,
+  "bytes_sent": 270540,
+  "mean_pps": 100.19637848105236,
+  "exit_reason": "duration_elapsed",
+  "t_start_mono_s": 2037272.694351462,
+  "t_stop_mono_s": 2037277.694532183,
+  "t_start_wall_iso": "2026-04-15T20:05:47.769324+00:00"
+}

@@ -3,11 +3,40 @@ network:
   victim_ip: "10.0.0.2"
 
 attack:
-  target_port: 9999
+  target_port: 30490        # SOME/IP default UDP port
   source_port: 12345
-  duration: 10          # seconds
-  payload_size: 512     # bytes
+  duration: 10              # seconds
+  payload_size: 512         # bytes (includes SOME/IP stub header if enabled)
+  someip_header: true       # prepend 16-byte SOME/IP-ish header for realism
+
+  mode: constant            # one of: constant | burst | ramp
+
+  # used by mode: constant
+  target_pps: 100
+
+  # used by mode: burst
+  burst:
+    on_ms: 500
+    off_ms: 500
+    pps: 200
+
+  # used by mode: ramp
+  ramp:
+    from_pps: 10
+    to_pps: 200
+
+benign:
+  enabled: false
+  target_port: 30490
+  source_port: 22222
+  pps: 20
+  payload_size: 64
 
 victim:
-  listen_port: 9999
-  log_interval: 100     # print stats every N packets
+  listen_port: 30490        # must match attack.target_port
+  log_interval: 100
+
+logging:
+  output_dir: "logs"
+  sample_interval_ms: 100
+  run_id: null              # null = autogenerate <utc-timestamp>-<short-uuid>
