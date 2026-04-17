@@ -3,5 +3,11 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Superpowers docs (local tooling)
-docs/superpowers/
+# Handoff docs
+docs/
+handoff.md
+
+# Per-run attacker outputs (keep only the reference run)
+logs/*
+!logs/sample_run/
+!logs/sample_run/**
