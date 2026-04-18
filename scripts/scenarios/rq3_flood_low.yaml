@@ -1,0 +1,23 @@
+meta:
+  id: rq3_flood_low
+  rq: 3
+  description: Flood 100 pps, detect_mitigate
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: true
+    mode: constant
+    target_pps: 100
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: detect_mitigate
+  spoof:
+    enabled: false

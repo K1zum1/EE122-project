@@ -24,7 +24,8 @@ import yaml
 from scapy.all import IP, UDP, Raw, send
 
 
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
+_DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
+CONFIG_PATH = Path(os.environ.get("EE122_CONFIG", str(_DEFAULT_CONFIG_PATH)))
 VALID_MODES = ("constant", "burst", "ramp")
 
 
@@ -168,11 +169,13 @@ def write_manifest(run_dir, run_id, cfg, t_start_wall, t_start_mono):
         "host": os.uname().nodename,
         "config": cfg,
     }
-    (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
+    (run_dir / "attacker_manifest.json").write_text(
+        json.dumps(manifest, indent=2, default=str)
+    )
 
 
 def write_summary(run_dir, run_id, stats):
-    (run_dir / "summary.json").write_text(
+    (run_dir / "attacker_summary.json").write_text(
         json.dumps({"run_id": run_id, **stats}, indent=2)
     )
 
@@ -183,8 +186,13 @@ def main():
     cfg = validate_config(cfg)
 
     run_id = make_run_id(cfg)
-    repo_root = Path(__file__).resolve().parent.parent
-    run_dir = repo_root / cfg["logging"]["output_dir"] / run_id
+    exp_log_dir = os.environ.get("EXP_LOG_DIR")
+    if exp_log_dir:
+        run_dir = Path(exp_log_dir)
+        run_id = run_dir.name
+    else:
+        repo_root = Path(__file__).resolve().parent.parent
+        run_dir = repo_root / cfg["logging"]["output_dir"] / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
     atk = cfg["attack"]

@@ -1,0 +1,24 @@
+meta:
+  id: rq3_spoof_many
+  rq: 3
+  description: Spoof (20 ids), detect_mitigate
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: false
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: detect_mitigate
+  spoof:
+    enabled: true
+    pps: 100
+    many_identities: true
+    num_identities: 20

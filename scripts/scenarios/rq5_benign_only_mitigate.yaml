@@ -1,0 +1,21 @@
+meta:
+  id: rq5_benign_only_mitigate
+  rq: 5
+  description: Benign only, detect_mitigate on (overhead + selectivity FP check)
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: false
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: detect_mitigate
+  spoof:
+    enabled: false

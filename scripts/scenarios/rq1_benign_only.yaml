@@ -1,0 +1,21 @@
+meta:
+  id: rq1_benign_only
+  rq: 1
+  description: Benign-only baseline, no defense
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: false
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: 'off'
+  spoof:
+    enabled: false

@@ -1,0 +1,21 @@
+meta:
+  id: rq2_benign_only
+  rq: 2
+  description: Benign-only under detect_only (FP test)
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: false
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: detect_only
+  spoof:
+    enabled: false

@@ -1,0 +1,24 @@
+meta:
+  id: rq8_delay_200_flood_10k
+  rq: 8
+  description: detect_mitigate + 200ms delay + high-rate flood
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: true
+    mode: constant
+    target_pps: 10000
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: detect_mitigate
+    inject_controller_delay_ms: 200
+  spoof:
+    enabled: false

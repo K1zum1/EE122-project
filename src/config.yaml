@@ -1,29 +1,52 @@
 network:
   attacker_ip: "10.0.0.1"
   victim_ip: "10.0.0.2"
+  victim_mac: "00:00:00:00:00:02"
+
+topology:
+  link_bw_mbps: 10
+  link_delay_ms: 1
+
+sdn:
+  defense_mode: off              # off | detect_only | detect_mitigate
+  poll_interval_ms: 500
+  threshold_pps: 500             # per-src or per-port pps trigger
+  consecutive_windows: 2         # # of windows above threshold before detection
+  drop_priority: 100
+  inject_controller_delay_ms: 0  # artificial controller latency (RQ8)
 
 attack:
-  target_port: 30490        # SOME/IP default UDP port
+  enabled: true
+  target_port: 30490             # SOME/IP default UDP port
   source_port: 12345
-  duration: 10              # seconds
-  payload_size: 512         # bytes (includes SOME/IP stub header if enabled)
-  someip_header: true       # prepend 16-byte SOME/IP-ish header for realism
+  duration: 10                   # seconds
+  warmup_s: 2                    # seconds of benign-only warmup before attack starts
+  payload_size: 512
+  someip_header: true
 
-  mode: constant            # one of: constant | burst | ramp
+  mode: constant                 # constant | burst | ramp
 
-  # used by mode: constant
-  target_pps: 100
-
-  # used by mode: burst
+  target_pps: 100                # used by mode=constant
   burst:
     on_ms: 500
     off_ms: 500
     pps: 200
-
-  # used by mode: ramp
   ramp:
     from_pps: 10
     to_pps: 200
+
+spoof:
+  enabled: false
+  pps: 100
+  duration: 10
+  payload_size: 128
+  target_port: 30490
+  source_port: 23456
+  victim_mac: "00:00:00:00:00:02"
+  fake_src_ip: "10.0.0.10"       # impersonate benign1 by default
+  fake_src_mac: "00:00:00:00:00:10"
+  many_identities: false
+  num_identities: 20
 
 benign:
   enabled: false
@@ -32,11 +55,19 @@ benign:
   pps: 20
   payload_size: 64
 
+probe:
+  enabled: false
+  port: 30491
+  source_port: 40001
+  pps: 20
+  payload_size: 32
+
 victim:
-  listen_port: 30490        # must match attack.target_port
-  log_interval: 100
+  bind_ip: "0.0.0.0"
+  listen_port: 30490
+  log_interval: 1000
 
 logging:
   output_dir: "logs"
   sample_interval_ms: 100
-  run_id: null              # null = autogenerate <utc-timestamp>-<short-uuid>
+  run_id: null

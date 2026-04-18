@@ -7,6 +7,9 @@ __pycache__/
 docs/
 handoff.md
 
+# Virtual env for local testing on macOS
+.venv/
+
 # Per-run attacker outputs (keep only the reference run)
 logs/*
 !logs/sample_run/

@@ -21,7 +21,8 @@ from pathlib import Path
 import yaml
 
 
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
+_DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
+CONFIG_PATH = Path(os.environ.get("EE122_CONFIG", str(_DEFAULT_CONFIG_PATH)))
 
 
 def die(msg):
@@ -47,13 +48,24 @@ def main():
     run_id = os.environ.get("BENIGN_RUN_ID") or (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-benign-" + uuid.uuid4().hex[:4]
     )
-    repo_root = Path(__file__).resolve().parent.parent
-    out_dir = repo_root / cfg.get("logging", {}).get("output_dir", "logs") / run_id
+    exp_log_dir = os.environ.get("EXP_LOG_DIR")
+    if exp_log_dir:
+        out_dir = Path(exp_log_dir)
+    else:
+        repo_root = Path(__file__).resolve().parent.parent
+        out_dir = repo_root / cfg.get("logging", {}).get("output_dir", "logs") / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / "benign_rate.csv"
+    host_tag = os.environ.get("BENIGN_HOST_TAG", "benign")
+    csv_path = out_dir / f"{host_tag}_rate.csv"
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("", b["source_port"]))
+    # Use a unique source port per host to avoid conflicts when two benign
+    # senders run on different Mininet hosts but share the same namespace view
+    # when EXP_LOG_DIR is unset.
+    try:
+        sock.bind(("", b["source_port"]))
+    except OSError:
+        sock.bind(("", 0))
 
     stop = {"v": False}
 

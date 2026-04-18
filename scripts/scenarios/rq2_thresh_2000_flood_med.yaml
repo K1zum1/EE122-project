@@ -1,0 +1,24 @@
+meta:
+  id: rq2_thresh_2000_flood_med
+  rq: 2
+  description: 'Threshold sweep: 2000 pps on flood_med (should miss)'
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: true
+    mode: constant
+    target_pps: 1000
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: detect_only
+    threshold_pps: 2000
+  spoof:
+    enabled: false

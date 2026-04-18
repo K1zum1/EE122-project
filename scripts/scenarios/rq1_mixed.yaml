@@ -1,0 +1,26 @@
+meta:
+  id: rq1_mixed
+  rq: 1
+  description: Mixed flood_med + spoof_single, no defense
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: true
+    mode: constant
+    target_pps: 1000
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: 'off'
+  spoof:
+    enabled: true
+    pps: 100
+    many_identities: false
+    num_identities: 20

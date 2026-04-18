@@ -1,0 +1,23 @@
+meta:
+  id: rq6_flood_pps_10000
+  rq: 6
+  description: Flood 10000 pps, detect_mitigate
+overrides:
+  attack:
+    duration: 30
+    warmup_s: 3
+    enabled: true
+    mode: constant
+    target_pps: 10000
+  benign:
+    enabled: true
+    pps: 50
+    payload_size: 64
+  probe:
+    enabled: true
+    pps: 50
+    payload_size: 32
+  sdn:
+    defense_mode: detect_mitigate
+  spoof:
+    enabled: false
