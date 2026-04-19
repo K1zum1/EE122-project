@@ -153,6 +153,35 @@ def _run_harness(net, hosts, cfg):
 
     procs = []
 
+    # #region agent log -- victim-side tcpdump for L2 evidence when spoof active
+    if spoof_enabled:
+        pcap_path = log_dir / "victim_eth0.pcap"
+        tcpd_log = (log_dir / "victim_tcpdump.log").open("w")
+        try:
+            tcpd = victim.popen(
+                [
+                    "tcpdump", "-n", "-i", "victim-eth0",
+                    "-U", "-s", "96", "-w", str(pcap_path),
+                    "udp",
+                ],
+                stdout=tcpd_log, stderr=tcpd_log,
+            )
+            procs.append(("tcpdump_victim", tcpd))
+            _dbg(
+                "src/topology.py:tcpdump_start",
+                "started tcpdump on victim-eth0",
+                data={"pcap": str(pcap_path)},
+                hypothesisId="H4_spoof_dropped",
+            )
+        except Exception as _e:
+            _dbg(
+                "src/topology.py:tcpdump_start",
+                "failed to start tcpdump",
+                data={"error": repr(_e)},
+                hypothesisId="H4_spoof_dropped",
+            )
+    # #endregion
+
     # #region agent log
     _dbg(
         "src/topology.py:spawn",
@@ -290,6 +319,63 @@ def _run_harness(net, hosts, cfg):
                 p.kill()
             except Exception:
                 pass
+
+    # #region agent log -- capture OVS and victim-side evidence before teardown
+    try:
+        import subprocess as _sp
+        ports_out = _sp.run(
+            ["ovs-ofctl", "-O", "OpenFlow13", "dump-ports", "s1"],
+            capture_output=True, text=True, timeout=5,
+        )
+        flows_out = _sp.run(
+            ["ovs-ofctl", "-O", "OpenFlow13", "dump-flows", "s1"],
+            capture_output=True, text=True, timeout=5,
+        )
+        ifcfg_out = _sp.run(
+            ["ovs-vsctl", "list-ports", "s1"],
+            capture_output=True, text=True, timeout=5,
+        )
+        (log_dir / "ovs_ports.txt").write_text(
+            (ports_out.stdout or "") + "\n--- stderr ---\n" + (ports_out.stderr or "")
+        )
+        (log_dir / "ovs_flows.txt").write_text(
+            (flows_out.stdout or "") + "\n--- stderr ---\n" + (flows_out.stderr or "")
+        )
+        (log_dir / "ovs_iflist.txt").write_text(
+            (ifcfg_out.stdout or "") + "\n--- stderr ---\n" + (ifcfg_out.stderr or "")
+        )
+
+        # Victim-side kernel-filter evidence (rp_filter/iptables).
+        victim_diag = victim.cmd(
+            "echo '--- rp_filter ---';"
+            " cat /proc/sys/net/ipv4/conf/all/rp_filter /proc/sys/net/ipv4/conf/default/rp_filter /proc/sys/net/ipv4/conf/victim-eth0/rp_filter 2>/dev/null;"
+            " echo '--- ip addr (victim) ---';"
+            " ip -4 addr show;"
+            " echo '--- ip route (victim) ---';"
+            " ip route;"
+            " echo '--- iptables filter ---';"
+            " iptables -L -n -v 2>&1 | head -40"
+        )
+        (log_dir / "victim_netdiag.txt").write_text(victim_diag or "")
+
+        _dbg(
+            "src/topology.py:teardown_diag",
+            "captured ovs + victim diagnostics",
+            data={
+                "ports_bytes": len(ports_out.stdout or ""),
+                "flows_bytes": len(flows_out.stdout or ""),
+                "victim_diag_bytes": len(victim_diag or ""),
+            },
+            hypothesisId="H4_spoof_dropped",
+        )
+    except Exception as _e:  # pragma: no cover - diagnostic only
+        _dbg(
+            "src/topology.py:teardown_diag",
+            "failed to capture diagnostics",
+            data={"error": repr(_e)},
+            hypothesisId="H4_spoof_dropped",
+        )
+    # #endregion
 
     info("*** harness: scenario complete\n")
 
