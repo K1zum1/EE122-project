@@ -20,8 +20,60 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+# #region agent log
+_DBG_LOG = str(Path(__file__).resolve().parent.parent / ".cursor" / "debug-70ad8e.log")
+def _dbg(location, message, data=None, hypothesisId=None, runId="initial"):
+    try:
+        os.makedirs(os.path.dirname(_DBG_LOG), exist_ok=True)
+        with open(_DBG_LOG, "a") as _f:
+            _f.write(json.dumps({
+                "sessionId": "70ad8e",
+                "runId": runId,
+                "hypothesisId": hypothesisId,
+                "location": location,
+                "message": message,
+                "data": data or {},
+                "timestamp": int(time.time() * 1000),
+            }) + "\n")
+    except Exception:
+        pass
+
+_dbg(
+    "src/udp_flood.py:entry",
+    "udp_flood process started",
+    data={
+        "sys_executable": sys.executable,
+        "python_version": sys.version.split()[0],
+        "pid": os.getpid(),
+        "cwd": os.getcwd(),
+        "EE122_CONFIG": os.environ.get("EE122_CONFIG"),
+        "EXP_LOG_DIR": os.environ.get("EXP_LOG_DIR"),
+    },
+    hypothesisId="H1_python_env",
+)
+# #endregion
+
 import yaml
-from scapy.all import IP, UDP, Raw, send
+try:
+    from scapy.all import IP, UDP, Raw, send
+    # #region agent log
+    _dbg(
+        "src/udp_flood.py:scapy_import",
+        "scapy imported successfully",
+        data={"scapy_available": True},
+        hypothesisId="H2_scapy_missing",
+    )
+    # #endregion
+except ImportError as _e:
+    # #region agent log
+    _dbg(
+        "src/udp_flood.py:scapy_import",
+        "scapy import FAILED",
+        data={"error": str(_e)},
+        hypothesisId="H2_scapy_missing",
+    )
+    # #endregion
+    raise
 
 
 _DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
@@ -272,6 +324,22 @@ def main():
             "t_stop_mono_s": t_stop_mono,
             "t_start_wall_iso": t_start_wall,
         })
+        # #region agent log
+        _dbg(
+            "src/udp_flood.py:exit",
+            "udp_flood finished",
+            data={
+                "sent": sent,
+                "bytes_sent": bytes_sent,
+                "elapsed_s": elapsed,
+                "mean_pps": mean_pps,
+                "target_pps": atk.get("pps"),
+                "mode": atk.get("mode"),
+                "exit_reason": exit_reason["value"],
+            },
+            hypothesisId="H3_rate_capped",
+        )
+        # #endregion
         print(
             f"[attacker] sent={sent} bytes={bytes_sent} "
             f"elapsed={elapsed:.2f}s mean_pps={mean_pps:.2f} "

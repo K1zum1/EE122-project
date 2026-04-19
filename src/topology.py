@@ -26,12 +26,32 @@ Env overrides respected by both modes:
 * ``CONTROLLER_PORT`` - remote controller port (default 6653)
 """
 
+import json
 import os
 import sys
 import time
 from pathlib import Path
 
 import yaml
+
+# #region agent log
+_DBG_LOG = str(Path(__file__).resolve().parent.parent / ".cursor" / "debug-70ad8e.log")
+def _dbg(location, message, data=None, hypothesisId=None, runId="initial"):
+    try:
+        os.makedirs(os.path.dirname(_DBG_LOG), exist_ok=True)
+        with open(_DBG_LOG, "a") as _f:
+            _f.write(json.dumps({
+                "sessionId": "70ad8e",
+                "runId": runId,
+                "hypothesisId": hypothesisId,
+                "location": location,
+                "message": message,
+                "data": data or {},
+                "timestamp": int(time.time() * 1000),
+            }) + "\n")
+    except Exception:
+        pass
+# #endregion
 
 from mininet.cli import CLI
 from mininet.link import TCLink
@@ -133,10 +153,26 @@ def _run_harness(net, hosts, cfg):
 
     procs = []
 
+    # #region agent log
+    _dbg(
+        "src/topology.py:spawn",
+        "harness spawning children with sys.executable",
+        data={
+            "sys_executable": sys.executable,
+            "python_version": sys.version.split()[0],
+            "flood_enabled": flood_enabled,
+            "spoof_enabled": spoof_enabled,
+            "benign_enabled": benign_enabled,
+            "probe_enabled": probe_enabled,
+        },
+        hypothesisId="H1_python_env",
+    )
+    # #endregion
+
     # Victim must start first so probes/floods have somewhere to land.
     info("*** harness: starting victim\n")
     victim_proc = victim.popen(
-        ["python3", "-u", victim_py],
+        [sys.executable, "-u", victim_py],
         env=env,
         stdout=host_log("victim"),
         stderr=host_log("victim_err"),
@@ -150,7 +186,7 @@ def _run_harness(net, hosts, cfg):
         procs.append((
             "probe",
             probe.popen(
-                ["python3", "-u", probe_py],
+                [sys.executable, "-u", probe_py],
                 env=env,
                 stdout=host_log("probe"),
                 stderr=host_log("probe_err"),
@@ -164,7 +200,7 @@ def _run_harness(net, hosts, cfg):
         procs.append((
             "benign1",
             benign1.popen(
-                ["python3", "-u", benign_py],
+                [sys.executable, "-u", benign_py],
                 env=benign_env,
                 stdout=host_log("benign1"),
                 stderr=host_log("benign1_err"),
@@ -175,7 +211,7 @@ def _run_harness(net, hosts, cfg):
         procs.append((
             "benign2",
             benign2.popen(
-                ["python3", "-u", benign_py],
+                [sys.executable, "-u", benign_py],
                 env=benign_env2,
                 stdout=host_log("benign2"),
                 stderr=host_log("benign2_err"),
@@ -193,7 +229,7 @@ def _run_harness(net, hosts, cfg):
         procs.append((
             "attacker",
             attacker.popen(
-                ["python3", "-u", flood_py],
+                [sys.executable, "-u", flood_py],
                 env=env,
                 stdout=host_log("attacker"),
                 stderr=host_log("attacker_err"),
@@ -206,7 +242,7 @@ def _run_harness(net, hosts, cfg):
         procs.append((
             "spoofer",
             spoofer.popen(
-                ["python3", "-u", spoof_py],
+                [sys.executable, "-u", spoof_py],
                 env=env,
                 stdout=host_log("spoofer"),
                 stderr=host_log("spoofer_err"),

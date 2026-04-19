@@ -30,8 +30,57 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+# #region agent log
+_DBG_LOG = str(Path(__file__).resolve().parent.parent / ".cursor" / "debug-70ad8e.log")
+def _dbg(location, message, data=None, hypothesisId=None, runId="initial"):
+    try:
+        os.makedirs(os.path.dirname(_DBG_LOG), exist_ok=True)
+        with open(_DBG_LOG, "a") as _f:
+            _f.write(json.dumps({
+                "sessionId": "70ad8e",
+                "runId": runId,
+                "hypothesisId": hypothesisId,
+                "location": location,
+                "message": message,
+                "data": data or {},
+                "timestamp": int(time.time() * 1000),
+            }) + "\n")
+    except Exception:
+        pass
+
+_dbg(
+    "src/spoof_attacker.py:entry",
+    "spoof_attacker process started",
+    data={
+        "sys_executable": sys.executable,
+        "python_version": sys.version.split()[0],
+        "pid": os.getpid(),
+    },
+    hypothesisId="H1_python_env",
+)
+# #endregion
+
 import yaml
-from scapy.all import Ether, IP, UDP, Raw, sendp
+try:
+    from scapy.all import Ether, IP, UDP, Raw, sendp
+    # #region agent log
+    _dbg(
+        "src/spoof_attacker.py:scapy_import",
+        "scapy imported successfully",
+        data={"scapy_available": True},
+        hypothesisId="H2_scapy_missing",
+    )
+    # #endregion
+except ImportError as _e:
+    # #region agent log
+    _dbg(
+        "src/spoof_attacker.py:scapy_import",
+        "scapy import FAILED",
+        data={"error": str(_e)},
+        hypothesisId="H2_scapy_missing",
+    )
+    # #endregion
+    raise
 
 
 _DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
