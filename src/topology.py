@@ -120,6 +120,24 @@ def _build_net(cfg):
     return net, hosts
 
 
+def _disable_rp_filter(hosts):
+    """Turn off reverse-path filtering on every host.
+
+    Our spoof attacker uses source IPs outside each victim's /24 subnet
+    (e.g. 10.0.66.x). With rp_filter=2 (loose), the Linux kernel checks
+    whether any local route covers the source and silently drops the
+    packet before delivering it to a UDP socket if none does. That makes
+    every spoofed packet invisible at the application layer, which is
+    exactly the behavior we're trying to measure the SDN defense against.
+    """
+    for h in hosts.values():
+        h.cmd("sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1")
+        h.cmd("sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null 2>&1")
+        # Also disable on the per-interface entry; kernel takes max(all, iface).
+        iface = f"{h.name}-eth0"
+        h.cmd(f"sysctl -w net.ipv4.conf.{iface}.rp_filter=0 >/dev/null 2>&1")
+
+
 def _run_harness(net, hosts, cfg):
     """Start per-host workloads for a single scenario, wait, stop."""
     log_dir = Path(os.environ.get("EXP_LOG_DIR", str(REPO_ROOT / "logs" / "harness_run")))
@@ -386,6 +404,8 @@ def car_network():
 
     info("*** starting network\n")
     net.start()
+
+    _disable_rp_filter(hosts)
 
     mode = os.environ.get("TOPO_MODE", "cli").strip()
 

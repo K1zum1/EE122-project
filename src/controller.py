@@ -97,6 +97,12 @@ class SDNDefense(app_manager.OSKenApp):
             float(sdn.get("inject_controller_delay_ms", 0)) / 1000.0
         )
         self.drop_priority = int(sdn.get("drop_priority", 100))
+        # Many-identity spoof detection: if more than this many distinct
+        # source MACs arrive on the same ingress port within the sliding
+        # window, flag the port. One ECU has one MAC, so 5+ distinct MACs
+        # is a strong spoofing signal regardless of pps.
+        self.novel_mac_window_s = float(sdn.get("novel_mac_window_s", 3.0))
+        self.novel_mac_threshold = int(sdn.get("novel_mac_threshold", 5))
 
         # L2 learning state.
         self.mac_to_port = {}
@@ -104,6 +110,7 @@ class SDNDefense(app_manager.OSKenApp):
 
         # Accounting state.
         self.prev_flow_pkts_by_src = defaultdict(int)
+        self.prev_flow_pkts_by_port = defaultdict(int)  # (dpid, in_port) -> packets
         self.pktin_count_by_src = defaultdict(int)
         self.prev_pktin_count_by_src = defaultdict(int)
         self.pktin_count_by_port = defaultdict(int)
@@ -119,6 +126,9 @@ class SDNDefense(app_manager.OSKenApp):
         self.t_rule_installed = {}
         self.mitigated_macs = set()
         self.mitigated_ports = set()  # (dpid, in_port)
+        # Sliding-window tracking of MACs per port for novel-MAC detection.
+        # (dpid, in_port) -> list of (mono_ts, mac)
+        self.port_mac_history = defaultdict(list)
 
         # Output directory.
         exp_log_dir = os.environ.get("EXP_LOG_DIR")
@@ -139,6 +149,7 @@ class SDNDefense(app_manager.OSKenApp):
             "t_mono_s", "t_wall_iso",
             "flow_count", "total_flow_pkts", "total_flow_bytes",
             "packet_in_rate", "per_src_pps_json", "per_port_pktin_rate_json",
+            "per_port_flow_pps_json", "distinct_mac_per_port_json",
             "cpu_percent", "mem_rss_mb",
         ])
         self._events_w.writerow([
@@ -267,6 +278,7 @@ class SDNDefense(app_manager.OSKenApp):
         self.pktin_total += 1
         self.pktin_count_by_src[src] += 1
         self.pktin_count_by_port[(dpid, in_port)] += 1
+        self.port_mac_history[(dpid, in_port)].append((time.monotonic(), src))
 
         # If the source or the port has already been quarantined, install a
         # short-lived drop to cover any racing packet-ins and bail out.
@@ -323,6 +335,8 @@ class SDNDefense(app_manager.OSKenApp):
         now_off = now_mono - self.t_start_mono
 
         curr_pkts_by_src = defaultdict(int)
+        curr_pkts_by_port = defaultdict(int)  # (dpid, in_port) -> total packets
+        dpid = datapath.id
         flow_count = 0
         total_pkts = 0
         total_bytes = 0
@@ -331,13 +345,16 @@ class SDNDefense(app_manager.OSKenApp):
             total_pkts += stat.packet_count
             total_bytes += stat.byte_count
             src = _match_get(stat.match, "eth_src")
-            if src is None:
-                continue
-            curr_pkts_by_src[src] += stat.packet_count
+            if src is not None:
+                curr_pkts_by_src[src] += stat.packet_count
+            in_port = _match_get(stat.match, "in_port")
+            if in_port is not None:
+                curr_pkts_by_port[(dpid, int(in_port))] += stat.packet_count
 
         dt = (now_mono - self.last_poll_mono) if self.last_poll_mono else 0.0
         per_src_pps = {}
         per_port_pktin_rate = {}
+        per_port_flow_pps = {}  # aggregate pps per ingress port, from flow stats
         packet_in_rate = 0.0
         if dt > 0:
             for src, pkts in curr_pkts_by_src.items():
@@ -356,16 +373,27 @@ class SDNDefense(app_manager.OSKenApp):
                 pktin_delta = cnt - self.prev_pktin_count_by_src.get(src, 0)
                 if pktin_delta > 0:
                     per_src_pps[src] = pktin_delta / dt
-            for (dpid, port), cnt in self.pktin_count_by_port.items():
-                delta = cnt - self.prev_pktin_count_by_port.get((dpid, port), 0)
+            for (d, port), cnt in self.pktin_count_by_port.items():
+                delta = cnt - self.prev_pktin_count_by_port.get((d, port), 0)
                 if delta > 0:
-                    per_port_pktin_rate[f"{dpid}:{port}"] = delta / dt
+                    per_port_pktin_rate[f"{d}:{port}"] = delta / dt
+            # Aggregate flow-stat pps per ingress port. This is the signal
+            # that survives after per-flow rules install, so it catches
+            # many-identity spoofing where pktin rate collapses to ~0.
+            for (d, port), pkts in curr_pkts_by_port.items():
+                prev = self.prev_flow_pkts_by_port.get((d, port), 0)
+                delta = pkts - prev
+                if delta < 0:
+                    delta = pkts
+                if delta > 0:
+                    per_port_flow_pps[f"{d}:{port}"] = delta / dt
             packet_in_rate = (
                 (self.pktin_total - self.prev_pktin_total) / dt
             )
 
         # Snapshot prev state AFTER we've computed deltas.
         self.prev_flow_pkts_by_src = dict(curr_pkts_by_src)
+        self.prev_flow_pkts_by_port = dict(curr_pkts_by_port)
         self.prev_pktin_count_by_src = dict(self.pktin_count_by_src)
         self.prev_pktin_count_by_port = dict(self.pktin_count_by_port)
         self.prev_pktin_total = self.pktin_total
@@ -395,8 +423,39 @@ class SDNDefense(app_manager.OSKenApp):
                     if self.violation_count[src] > 0:
                         self.violation_count[src] -= 1
 
-            # Per ingress port (catches many-identity spoofing)
-            for key, rate in per_port_pktin_rate.items():
+            # Novel-MAC-count per port: cheap signal for many-identity
+            # spoofing, works regardless of pps.
+            cutoff = now_mono - self.novel_mac_window_s
+            for (d, port), entries in list(self.port_mac_history.items()):
+                # Drop history older than the sliding window.
+                pruned = [(t, m) for (t, m) in entries if t >= cutoff]
+                self.port_mac_history[(d, port)] = pruned
+                distinct = {m for (_, m) in pruned}
+                if len(distinct) > self.novel_mac_threshold:
+                    vkey = f"novelmac:{d}:{port}"
+                    if vkey not in self.t_detect:
+                        self.t_detect[vkey] = now_off
+                        self._log_event(
+                            "detect_port",
+                            dpid=d,
+                            in_port=port,
+                            extra=(
+                                f"novel_macs={len(distinct)}"
+                                f" window_s={self.novel_mac_window_s:.1f}"
+                            ),
+                        )
+                        if self.defense_mode == "detect_mitigate":
+                            self._mitigate_port(d, port, datapath)
+
+            # Per ingress port (catches many-identity spoofing). Combine
+            # pktin rate (novel-MAC surface) and aggregate flow-stat rate
+            # (bulk traffic after rules install). Whichever is higher wins.
+            port_keys = set(per_port_pktin_rate) | set(per_port_flow_pps)
+            for key in port_keys:
+                rate = max(
+                    per_port_pktin_rate.get(key, 0.0),
+                    per_port_flow_pps.get(key, 0.0),
+                )
                 vkey = f"port:{key}"
                 if rate > self.threshold_pps:
                     self.violation_count[vkey] += 1
@@ -410,7 +469,11 @@ class SDNDefense(app_manager.OSKenApp):
                             "detect_port",
                             dpid=dpid_s,
                             in_port=port_s,
-                            extra=f"pktin_rate={rate:.1f}",
+                            extra=(
+                                f"port_pps={rate:.1f}"
+                                f" pktin={per_port_pktin_rate.get(key,0.0):.1f}"
+                                f" flow={per_port_flow_pps.get(key,0.0):.1f}"
+                            ),
                         )
                         if self.defense_mode == "detect_mitigate":
                             self._mitigate_port(int(dpid_s), int(port_s), datapath)
@@ -428,6 +491,11 @@ class SDNDefense(app_manager.OSKenApp):
         else:
             cpu, mem = -1.0, -1.0
 
+        distinct_mac_per_port = {
+            f"{d}:{p}": len({m for (_, m) in entries})
+            for (d, p), entries in self.port_mac_history.items()
+            if entries
+        }
         self._stats_w.writerow([
             f"{now_off:.4f}",
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -435,6 +503,8 @@ class SDNDefense(app_manager.OSKenApp):
             f"{packet_in_rate:.2f}",
             json.dumps({k: round(v, 2) for k, v in per_src_pps.items()}),
             json.dumps({k: round(v, 2) for k, v in per_port_pktin_rate.items()}),
+            json.dumps({k: round(v, 2) for k, v in per_port_flow_pps.items()}),
+            json.dumps(distinct_mac_per_port),
             f"{cpu:.2f}", f"{mem:.2f}",
         ])
         self._stats_fh.flush()
