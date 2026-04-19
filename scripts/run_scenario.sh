@@ -30,8 +30,26 @@ SCENARIO_ID="$(basename "$SCENARIO" .yaml)"
 RUN_DIR="$HERE/logs/$EXP_ID/$SCENARIO_ID/trial$TRIAL"
 mkdir -p "$RUN_DIR"
 
+# Resolve a Python that has the project's deps (scapy, mininet, yaml, os_ken).
+# `sudo` resets PATH to secure_path, so a bare `python3` usually lands at
+# /usr/bin/python3 instead of the invoking user's conda env. Prefer explicit
+# PYTHON_BIN, else try the invoking user's conda `sdn` env, else fall back.
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  _INVOKER="${SUDO_USER:-$USER}"
+  _INVOKER_HOME="$(getent passwd "$_INVOKER" 2>/dev/null | cut -d: -f6 || echo "")"
+  for _candidate in \
+      "${CONDA_PREFIX:-}/bin/python3" \
+      "$_INVOKER_HOME/miniconda3/envs/sdn/bin/python3" \
+      "$_INVOKER_HOME/anaconda3/envs/sdn/bin/python3"; do
+    if [[ -n "$_candidate" && -x "$_candidate" ]]; then
+      PYTHON_BIN="$_candidate"
+      break
+    fi
+  done
+fi
 PYTHON="${PYTHON_BIN:-python3}"
 OS_KEN="${OS_KEN_MANAGER:-os-ken-manager}"
+echo "[run_scenario] using PYTHON=$PYTHON"
 
 echo "[run_scenario] scenario=$SCENARIO_ID trial=$TRIAL run_dir=$RUN_DIR"
 
